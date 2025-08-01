@@ -1,0 +1,155 @@
+name: Data Pipeline
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+    inputs:
+      dataset:
+        description: 'Kaggle dataset to process'
+        required: false
+        default: 'carrie1/ecommerce-data'
+      file:
+        description: 'Specific file to download'
+        required: false
+        default: 'ecommerce_data.csv'
+
+env:
+  PYTHON_VERSION: '3.9'
+  MYSQL_HOST: localhost
+  MYSQL_PORT: 3306
+  MYSQL_USER: root
+  MYSQL_PASSWORD: root
+  MYSQL_DATABASE: ecommerce_data_pipeline
+  RAW_SCHEMA: raw_data
+  PROCESSED_SCHEMA: processed_data
+  WAREHOUSE_SCHEMA: data_warehouse
+
+jobs:
+  setup-databases:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: ${{ env.MYSQL_PASSWORD }}
+          MYSQL_DATABASE: ${{ env.MYSQL_DATABASE }}
+        options: >-
+          --health-cmd "mysqladmin ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 3306:3306
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Wait for MySQL
+      run: |
+        while ! mysqladmin ping -h"${{ env.MYSQL_HOST }}" -P"${{ env.MYSQL_PORT }}" -u"${{ env.MYSQL_USER }}" -p"${{ env.MYSQL_PASSWORD }}" --silent; do
+          sleep 1
+        done
+    
+    - name: Create database and schemas
+      run: |
+        mysql -h ${{ env.MYSQL_HOST }} -P ${{ env.MYSQL_PORT }} -u ${{ env.MYSQL_USER }} -p${{ env.MYSQL_PASSWORD }} -e "
+        CREATE DATABASE IF NOT EXISTS ${{ env.MYSQL_DATABASE }};
+        USE ${{ env.MYSQL_DATABASE }};
+        CREATE SCHEMA IF NOT EXISTS ${{ env.RAW_SCHEMA }};
+        CREATE SCHEMA IF NOT EXISTS ${{ env.PROCESSED_SCHEMA }};
+        CREATE SCHEMA IF NOT EXISTS ${{ env.WAREHOUSE_SCHEMA }};
+        SHOW DATABASES;
+        SHOW SCHEMAS;
+        "
+
+  run-pipeline:
+    needs: setup-databases
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: ${{ env.MYSQL_PASSWORD }}
+          MYSQL_DATABASE: ${{ env.MYSQL_DATABASE }}
+        options: >-
+          --health-cmd "mysqladmin ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 3306:3306
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Wait for MySQL
+      run: |
+        while ! mysqladmin ping -h"${{ env.MYSQL_HOST }}" -P"${{ env.MYSQL_PORT }}" -u"${{ env.MYSQL_USER }}" -p"${{ env.MYSQL_PASSWORD }}" --silent; do
+          sleep 1
+        done
+    
+    - name: Run data pipeline
+      run: |
+        python main_pipeline.py
+    
+    - name: Upload pipeline logs
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: pipeline-logs
+        path: |
+          pipeline.log
+          pipeline_summary.json
+          data/
+    
+    - name: Run data validation
+      run: |
+        python query_data.py
+    
+    - name: Upload validation results
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: validation-results
+        path: |
+          validation_results.json
+          data_quality_report.json
+          sample_queries_results.json
+
+  notify:
+    needs: run-pipeline
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+    - name: Notify pipeline completion
+      run: |
+        if [ "${{ needs.run-pipeline.result }}" == "success" ]; then
+          echo "✅ Data pipeline completed successfully!"
+        else
+          echo "❌ Data pipeline failed!"
+        fi 

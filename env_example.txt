@@ -1,0 +1,22 @@
+# MySQL Database Configuration
+MYSQL_HOST=localhost
+MYSQL_PORT=3306
+MYSQL_USER=root
+MYSQL_PASSWORD=password
+MYSQL_DATABASE=ecommerce_data_pipeline
+
+# Schema Configuration
+RAW_SCHEMA=raw_data
+PROCESSED_SCHEMA=processed_data
+WAREHOUSE_SCHEMA=data_warehouse
+
+# Kaggle Configuration
+KAGGLE_DATASET=carrie1/ecommerce-data
+KAGGLE_FILE=ecommerce_data.csv
+
+# Data Processing Settings
+BATCH_SIZE=1000
+CHUNK_SIZE=5000
+
+# Logging
+LOG_LEVEL=INFO 
